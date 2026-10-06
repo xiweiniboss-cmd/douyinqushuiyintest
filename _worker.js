@@ -504,6 +504,7 @@ const siteName = (p) => {
     if (h.includes('tiktok')) return 'TikTok站';
     if (h.includes('xiaohongshu')) return '小红书站';
     if (h.includes('douyin')) return '抖音站';
+    if (h.includes('youtube')) return 'YouTube站';
     return h;
   } catch { return ''; }
 };
