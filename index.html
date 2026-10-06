@@ -82,10 +82,18 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     }
   };
 
-  // 抖音 CDN 强校验 Referer：必须带 https://www.douyin.com/ 否则 403
-  // fetch 的 referrer 选项是浏览器允许的设置 Referer 的正规方式
+  // 下载代理：Safari 不允许页面伪造跨域 Referer（实测会被忽略），
+  // 而抖音 CDN 强校验 Referer，所以媒体下载一律走同源的 /api/dl 代理，
+  // 由 Worker 代为设置 Referer 头下载后转交前端。
+  function dlProxy(u, filename){
+    return '/api/dl?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(filename || 'video.mp4');
+  }
+  function dyFetch(u, filename){
+    return fetch(dlProxy(u, filename));
+  }
+  // 诊断用：直接请求，验证浏览器 referrer 选项行为
   var DY_REFERER = 'https://www.douyin.com/';
-  function dyFetch(u){
+  function rawDyFetch(u){
     return fetch(u, { referrer: DY_REFERER, referrerPolicy: 'unsafe-url' });
   }
   function fileName(base, ext){
@@ -102,7 +110,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
   }
   function resetParseBtn(){ setParseBtn('开始解析', false); }
 
-  // 一键下载：逐个地址尝试，成功则经系统分享保存（iPhone 弹出菜单）
+  // 一键下载：经 /api/dl 代理逐个地址尝试，成功则经系统分享保存（iPhone 弹出菜单）
   function downloadFile(url, filename, altUrls){
     var urls = [url].concat(altUrls || []);
     var idx = 0;
@@ -119,9 +127,11 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
           '也可以稍后重试。<br><br><button class="btn ghost" style="margin-top:4px" onclick="navigator.clipboard.writeText(window._dyDebugUrls.join(\'\\n\')).then(function(){alert(\'已复制，请发给开发者分析\')})">📋 复制完整视频地址发我分析</button>');
         return;
       }
-      var u = urls[idx++];
+      var u = urls[idx];
+      var curName = idx === 0 ? filename : fileName(filename.replace(/\.\w+$/, '') + '_' + idx, 'mp4');
+      idx++;
       var shortUrl = u.length > 60 ? u.substring(0, 60) + '...' : u;
-      dyFetch(u).then(function(res){
+      dyFetch(u, curName).then(function(res){
         if(!res.ok) throw new Error('HTTP ' + res.status);
         return res.blob();
       }).then(function(blob){
@@ -144,9 +154,9 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     tryNext();
   }
 
-  // 预览：先用带 Referer 的请求取 blob，再转成本地 URL（video/img 标签发不出自定义 Referer）
-  function blobUrl(u){
-    return dyFetch(u).then(function(res){
+  // 预览：经 /api/dl 代理取 blob，再转成本地 URL
+  function blobUrl(u, filename){
+    return dyFetch(u, filename).then(function(res){
       if(!res.ok) throw new Error('HTTP ' + res.status);
       return res.blob();
     }).then(function(blob){
@@ -166,7 +176,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
       v.id = 'preview'; v.controls = true; v.playsInline = true; v.preload = 'metadata';
       v.textContent = '视频加载中…';
       mediaBox.appendChild(v);
-      blobUrl(d.videos[0]).then(function(objUrl){
+      blobUrl(d.videos[0], fileName(d.title || 'video', 'mp4')).then(function(objUrl){
         v.src = objUrl;
       }).catch(function(){
         v.textContent = '';
@@ -185,9 +195,9 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
         img.alt = '图片' + (i + 1);
         img.loading = 'lazy';
         grid.appendChild(img);
-        blobUrl(src).then(function(objUrl){ img.src = objUrl; }).catch(function(){});
+        blobUrl(src, fileName((d.title || 'image') + '_' + (i + 1), 'jpg')).then(function(objUrl){ img.src = objUrl; }).catch(function(){});
         img.onclick = function(){
-          blobUrl(src).then(function(objUrl){
+          blobUrl(src, fileName((d.title || 'image') + '_' + (i + 1), 'jpg')).then(function(objUrl){
             var a = document.createElement('a');
             a.href = objUrl; a.download = fileName((d.title || 'image') + '_' + (i + 1), 'jpg');
             document.body.appendChild(a); a.click();
@@ -205,10 +215,10 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  // 网络诊断：验证 fetch 的 referrer 选项是否真的发出了 Referer 头
+  // 网络诊断：验证 fetch 的 referrer 选项是否真的发出了 Referer 头（直接请求，不走代理）
   $('diagLink').onclick = function(){
     showError('诊断中…正在请求 httpbin.org/headers');
-    dyFetch('https://httpbin.org/headers').then(function(res){
+    rawDyFetch('https://httpbin.org/headers').then(function(res){
       return res.json();
     }).then(function(j){
       var h = j.headers || {};

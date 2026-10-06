@@ -257,6 +257,50 @@ export default {
       });
     }
 
+    // 媒体下载代理：Safari 的 fetch 不允许伪造跨域 Referer（实测会被忽略），
+    // 而抖音 CDN 强校验 Referer，所以由 Worker 代为下载并转给前端。
+    // Worker 发出的请求可以自由设置 Referer 头（浏览器才禁止）。
+    if (url.pathname === '/api/dl') {
+      const mediaUrl = url.searchParams.get('url') || '';
+      const filename = (url.searchParams.get('filename') || 'douyin_media').replace(/["\r\n]/g, '').slice(0, 80) || 'douyin_media';
+      let target = null;
+      try {
+        target = new URL(mediaUrl);
+      } catch {
+        return json({ ok: false, error: '无效的下载地址' }, 400);
+      }
+      const allowed =
+        /(^|\.)douyinvod\.com$|(^|\.)byteimg\.com$|(^|\.)ibyteimg\.com$|(^|\.)douyin\.com$|(^|\.)douyinpic\.com$|(^|\.)pstatp\.com$/i;
+      if (!/^https:$/.test(target.protocol) || !allowed.test(target.hostname))
+        return json({ ok: false, error: '不支持的下载地址' }, 400);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 90000);
+      try {
+        const resp = await fetch(mediaUrl, {
+          headers: {
+            'User-Agent': UA_MOBILE,
+            Referer: 'https://www.douyin.com/',
+            Accept: '*/*',
+          },
+          signal: ctrl.signal,
+        });
+        if (!resp.ok || !resp.body)
+          return json({ ok: false, error: '下载失败（HTTP ' + resp.status + '）' }, 502);
+        const h = new Headers();
+        h.set('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
+        const len = resp.headers.get('content-length');
+        if (len) h.set('Content-Length', len);
+        h.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+        h.set('Cache-Control', 'no-store');
+        h.set('Access-Control-Allow-Origin', '*');
+        return new Response(resp.body, { status: 200, headers: h });
+      } catch (e) {
+        return json({ ok: false, error: '下载失败：' + (e.message || '网络错误') }, 502);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
     // 静态资源
     if (env.ASSETS && typeof env.ASSETS.fetch === 'function') {
       try {
