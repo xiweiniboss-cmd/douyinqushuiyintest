@@ -28,6 +28,32 @@ video#preview{ width:100%; max-height:60vh; border-radius:12px; background:#000;
 .grid img{ width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:8px; background:#101016; }
 .err{ display:none; background:rgba(254,44,85,.12); border:1px solid rgba(254,44,85,.4); color:#ff8ba0; font-size:13px; border-radius:12px; padding:12px; margin-top:14px; line-height:1.7; word-break:break-word; }
 .loading{ display:none; text-align:center; color:var(--muted); font-size:13px; margin-top:14px; }
+/* 反馈浮钮 + 底部弹窗 */
+#fbBtn{ position:fixed; right:18px; bottom:calc(22px + env(safe-area-inset-bottom)); width:52px; height:52px;
+        border-radius:50%; border:none; font-size:24px; background:linear-gradient(135deg,var(--pink),#ff6b4a);
+        box-shadow:0 4px 14px rgba(254,44,85,.45); cursor:pointer; z-index:60; }
+#fbBtn:active{ transform:scale(.94); }
+#fbWrap{ display:none; position:fixed; inset:0; z-index:70; }
+#fbWrap.show{ display:block; }
+#fbWrap .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.65); }
+#fbWrap .sheet{ position:absolute; left:0; right:0; bottom:0; background:var(--card); border:1px solid #2c2c36;
+                border-bottom:none; border-radius:18px 18px 0 0; padding:18px 18px calc(20px + env(safe-area-inset-bottom));
+                max-width:520px; margin:0 auto; max-height:88vh; overflow-y:auto; }
+#fbWrap .sheet h3{ font-size:17px; margin:0 0 6px; }
+#fbWrap .sheet p{ font-size:13px; color:var(--muted); line-height:1.7; margin:0 0 12px; }
+#fbWrap input[type=text]{ width:100%; background:#101016; border:1px solid #2c2c36; border-radius:12px;
+                          color:var(--text); font-size:14px; padding:12px; outline:none; margin-top:10px; }
+#fbWrap input[type=text]:focus{ border-color:var(--pink); }
+#fbWrap input[type=file]{ margin-top:8px; font-size:13px; color:var(--muted); }
+#fbWrap .flabel{ display:block; margin-top:10px; font-size:13px; color:var(--muted); }
+#fbWrap .row{ display:flex; gap:10px; margin-top:14px; }
+#fbWrap .btn-ghost{ flex:1; background:#2a2a34; border:none; border-radius:12px; font-size:15px; padding:13px 0; color:var(--text); cursor:pointer; }
+#fbWrap .btn-ok{ flex:2; border:none; border-radius:12px; font-size:15px; font-weight:600; padding:13px 0;
+                 color:#fff; cursor:pointer; background:linear-gradient(135deg,var(--pink),#ff6b4a); }
+#fbWrap .btn-ok:disabled{ opacity:.5; }
+#fbDone{ display:none; text-align:center; padding:20px 0 6px; }
+#fbDone .big{ font-size:40px; }
+#fbDone p{ margin-top:10px; }
 footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-height:1.8; }
 </style>
 </head>
@@ -36,6 +62,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
   <header>
     <h1><span class="dy">抖音</span> <span class="dl">无水印下载</span></h1>
     <p>粘贴分享链接，一键保存无水印视频 / 图片</p>
+    <p style="font-size:12px;color:var(--muted)">本站已解析 <b id="parseCount" style="color:var(--pink)">-</b> 次</p>
   </header>
 
   <div class="card">
@@ -44,6 +71,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
       <button class="btn ghost" id="pasteBtn" style="margin-top:0;flex:1">📋 一键粘贴</button>
       <button class="btn" id="parseBtn" style="margin-top:0;flex:2">开始解析</button>
     </div>
+    <div id="tsParseWidget" style="margin-top:10px"></div>
     <div class="hint">📋 在抖音 App 点「分享」→「复制链接」，粘贴到这里即可<br>🔒 仅解析公开作品，请勿用于侵权用途</div>
   </div>
 
@@ -58,6 +86,26 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
   </div>
 
   <footer>解析仅供个人学习交流<br>请勿传播他人原创作品<br><a href="javascript:void(0)" id="diagLink" style="color:#55555f;font-size:11px">🔧 网络诊断</a></footer>
+</div>
+
+<!-- 反馈 -->
+<button id="fbBtn" title="问题反馈">💬</button>
+<div id="fbWrap">
+  <div class="backdrop" id="fbBackdrop"></div>
+  <div class="sheet" id="fbSheet">
+    <h3>问题反馈</h3>
+    <p>遇到解析失败、下载不了等问题？描述一下，可以附截图或录屏。</p>
+    <textarea id="fbMsg" placeholder="请描述你遇到的问题（比如：哪条链接解析失败、报了什么错）"></textarea>
+    <input type="text" id="fbContact" placeholder="联系方式（可选）" maxlength="120">
+    <label class="flabel" for="fbFiles">📎 截图/录屏（可选，最多3个，单个≤20MB）</label>
+    <input type="file" id="fbFiles" accept="image/*,video/*" multiple>
+    <div id="tsWidget" style="margin-top:10px"></div>
+    <div class="row">
+      <button class="btn-ghost" id="fbCancel">取消</button>
+      <button class="btn-ok" id="fbSubmit">提交反馈</button>
+    </div>
+    <div id="fbDone"><div class="big">✅</div><p>反馈已提交，谢谢！</p></div>
+  </div>
 </div>
 
 <script>
@@ -231,14 +279,102 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     });
   };
 
+  /* 解析区人机验证 */
+  var tsParseWidgetId = null;
+  (function loadParseTurnstile(){
+    fetch('/api/turnstile-key').then(function(r){ return r.json(); }).then(function(j){
+      if (!j.ok || !j.siteKey) return;
+      var s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      s.async = true; s.defer = true;
+      s.onload = function(){
+        try {
+          tsParseWidgetId = turnstile.render('#tsParseWidget', { sitekey: j.siteKey, theme: 'dark', language: 'zh-cn' });
+        } catch(e){}
+      };
+      document.head.appendChild(s);
+    }).catch(function(){});
+  })();
+
+    /* 反馈表单 */
+  var tsWidgetId = null;
+  function loadTurnstile(){
+    if (tsWidgetId !== null || window.turnstileLoading) return;
+    window.turnstileLoading = true;
+    fetch('/api/turnstile-key').then(function(r){ return r.json(); }).then(function(j){
+      if (!j.ok || !j.siteKey) return;
+      var s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      s.async = true; s.defer = true;
+      s.onload = function(){
+        try {
+          tsWidgetId = turnstile.render('#tsWidget', { sitekey: j.siteKey, theme: 'dark', language: 'zh-cn' });
+        } catch(e){}
+      };
+      document.head.appendChild(s);
+    }).catch(function(){});
+  }
+  $('fbBtn').onclick = function(){ $('fbWrap').classList.add('show'); $('fbDone').style.display = 'none'; loadTurnstile(); };
+  $('fbBackdrop').onclick = function(){ $('fbWrap').classList.remove('show'); };
+  $('fbCancel').onclick = function(){ $('fbWrap').classList.remove('show'); };
+  $('fbSubmit').onclick = async function(){
+    var msg = $('fbMsg').value.trim();
+    if(!msg){ showError('请先填写反馈内容。'); return; }
+    var files = Array.prototype.slice.call($('fbFiles').files || []);
+    if(files.length > 3){ showError('最多上传 3 个附件。'); return; }
+    for(var i = 0; i < files.length; i++){
+      var f = files[i];
+      if(!/^(image|video)\//.test(f.type || '')){ showError('只支持图片和视频附件。'); return; }
+      if(f.size > 20 * 1024 * 1024){ showError('单个附件不能超过 20MB。'); return; }
+    }
+    var tsToken = '';
+    if (tsWidgetId !== null) {
+      try { tsToken = turnstile.getResponse(tsWidgetId) || ''; } catch(e){}
+      if (!tsToken) { showError('请先完成人机验证。'); return; }
+    }
+    var btn = $('fbSubmit');
+    btn.disabled = true; btn.textContent = '提交中…';
+    try{
+      var fd = new FormData();
+      fd.append('message', msg);
+      fd.append('contact', $('fbContact').value.trim());
+      fd.append('page', location.href);
+      if (tsToken) fd.append('cf-turnstile-response', tsToken);
+      files.forEach(function(ff){ fd.append('files', ff, ff.name); });
+      const r = await fetch('/api/feedback', { method: 'POST', body: fd });
+      const j = await r.json();
+      if(j.ok){
+        $('fbMsg').value = ''; $('fbContact').value = ''; $('fbFiles').value = '';
+        $('fbDone').style.display = 'block';
+        setTimeout(function(){ $('fbWrap').classList.remove('show'); }, 1600);
+      } else {
+        showError('反馈提交失败：' + (j.error || '请稍后重试'));
+      }
+    }catch(e){ showError('网络错误，请稍后重试。'); }
+    if (tsWidgetId !== null) { try { turnstile.reset(tsWidgetId); } catch(e){} }
+    btn.disabled = false; btn.textContent = '提交反馈';
+  };
+
+  /* 本站解析次数 */
+  fetch('/api/stats').then(function(r){ return r.json(); }).then(function(j){
+    if (j.ok && typeof j.parseCount === 'number') $('parseCount').textContent = j.parseCount;
+  }).catch(function(){});
+
   parseBtn.onclick = function(){
     var text = urlInput.value.trim();
     hideError();
     resultBox.style.display = 'none';
     if(!text){ showError('请先粘贴抖音分享链接'); return; }
+    var tsToken = '';
+    if (tsParseWidgetId !== null) {
+      try { tsToken = turnstile.getResponse(tsParseWidgetId) || ''; } catch(e){}
+      if (!tsToken) { showError('请先完成人机验证'); return; }
+    }
     setParseBtn('解析中…', true);
     loading.style.display = 'block';
-    fetch('/api/parse?url=' + encodeURIComponent(text))
+    var apiUrl = '/api/parse?url=' + encodeURIComponent(text);
+    if (tsToken) apiUrl += '&turnstile=' + encodeURIComponent(tsToken);
+    fetch(apiUrl)
       .then(function(r){ return r.text().then(function(t){
         var ct = r.headers.get('content-type') || '';
         if(!/json/i.test(ct)) throw new Error('服务异常（HTTP ' + r.status + '），请稍后重试');
@@ -247,12 +383,19 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
       .then(function(data){
         loading.style.display = 'none';
         resetParseBtn();
+        if (tsParseWidgetId !== null) { try { turnstile.reset(tsParseWidgetId); } catch(e){} }
         if(!data.ok) throw new Error(data.error || '解析失败');
         renderResult(data);
+        try {
+          var el = $('parseCount');
+          var n = parseInt(el.textContent, 10);
+          if (!isNaN(n)) el.textContent = n + 1;
+        } catch(e){}
       })
       .catch(function(e){
         loading.style.display = 'none';
         resetParseBtn();
+        if (tsParseWidgetId !== null) { try { turnstile.reset(tsParseWidgetId); } catch(e){} }
         var msg = String(e.message || '解析失败');
         if(/did not match the expected pattern|Unexpected token/i.test(msg))
           msg = '服务暂时不可用，请稍后重试';
