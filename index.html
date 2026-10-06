@@ -279,39 +279,39 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     });
   };
 
-  /* 解析区人机验证 */
+  /* 解析区人机验证（与反馈共用一次脚本加载，重复引入会卡死组件） */
+  var _tsScriptPromise = null;
+  function ensureTurnstileScript(){
+    if (_tsScriptPromise) return _tsScriptPromise;
+    _tsScriptPromise = fetch('/api/turnstile-key').then(function(r){ return r.json(); }).then(function(j){
+      if (!j.ok || !j.siteKey) throw new Error('no site key');
+      return new Promise(function(resolve, reject){
+        if (window.turnstile) { resolve(j.siteKey); return; }
+        var s = document.createElement('script');
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+        s.async = true; s.defer = true;
+        s.onload = function(){ resolve(j.siteKey); };
+        s.onerror = function(){ reject(new Error('script load failed')); };
+        document.head.appendChild(s);
+      });
+    });
+    return _tsScriptPromise;
+  }
   var tsParseWidgetId = null;
-  (function loadParseTurnstile(){
-    fetch('/api/turnstile-key').then(function(r){ return r.json(); }).then(function(j){
-      if (!j.ok || !j.siteKey) return;
-      var s = document.createElement('script');
-      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-      s.async = true; s.defer = true;
-      s.onload = function(){
-        try {
-          tsParseWidgetId = turnstile.render('#tsParseWidget', { sitekey: j.siteKey, theme: 'dark', language: 'zh-cn' });
-        } catch(e){}
-      };
-      document.head.appendChild(s);
-    }).catch(function(){});
-  })();
+  ensureTurnstileScript().then(function(siteKey){
+    try {
+      tsParseWidgetId = turnstile.render('#tsParseWidget', { sitekey: siteKey, theme: 'dark', language: 'zh-cn' });
+    } catch(e){}
+  }).catch(function(){});
 
     /* 反馈表单 */
   var tsWidgetId = null;
   function loadTurnstile(){
-    if (tsWidgetId !== null || window.turnstileLoading) return;
-    window.turnstileLoading = true;
-    fetch('/api/turnstile-key').then(function(r){ return r.json(); }).then(function(j){
-      if (!j.ok || !j.siteKey) return;
-      var s = document.createElement('script');
-      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-      s.async = true; s.defer = true;
-      s.onload = function(){
-        try {
-          tsWidgetId = turnstile.render('#tsWidget', { sitekey: j.siteKey, theme: 'dark', language: 'zh-cn' });
-        } catch(e){}
-      };
-      document.head.appendChild(s);
+    if (tsWidgetId !== null) return;
+    ensureTurnstileScript().then(function(siteKey){
+      try {
+        tsWidgetId = turnstile.render('#tsWidget', { sitekey: siteKey, theme: 'dark', language: 'zh-cn' });
+      } catch(e){}
     }).catch(function(){});
   }
   $('fbBtn').onclick = function(){ $('fbWrap').classList.add('show'); $('fbDone').style.display = 'none'; loadTurnstile(); };
