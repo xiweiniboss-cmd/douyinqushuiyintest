@@ -112,8 +112,11 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     function tryNext(){
       if(idx >= urls.length){
         resetParseBtn();
+        window._dyDebugUrls = urls;
         showError('一键下载失败，各地址错误如下：<br>' + errLog.join('<br>') +
-          '<br><br>💡 如果你开了 VPN（比如刚才下 TikTok 切的节点），<b>请先关掉 VPN 再试</b>：抖音 CDN 可能限制境外 IP 访问。<br>也可以稍后重试。');
+          '<br><br>💡 如果你开了 VPN（比如刚才下 TikTok 切的节点），<b>请先关掉 VPN 再试</b>：抖音 CDN 可能限制境外 IP 访问。<br>' +
+          '💡 另外检查 <b>设置 → Apple ID → iCloud → 专用代理</b> 是否开着，开着的话 Safari 流量会走境外出口，也会导致 403，关掉再试。<br>' +
+          '也可以稍后重试。<br><br><button class="btn ghost" style="margin-top:4px" onclick="navigator.clipboard.writeText(window._dyDebugUrls.join(\'\\n\')).then(function(){alert(\'已复制，请发给开发者分析\')})">📋 复制完整视频地址发我分析</button>');
         return;
       }
       var u = urls[idx++];
