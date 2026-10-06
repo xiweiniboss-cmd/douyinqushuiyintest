@@ -24,7 +24,6 @@ function json(data, status = 200) {
 }
 
 // Cloudflare Turnstile 人机验证：secret 配了才校验，不配则跳过（向后兼容）
-// 返回 { ok, codes }，codes 为 Cloudflare 返回的错误码（调试用）
 async function verifyTurnstile(token, secret, ip) {
   try {
     const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
@@ -33,9 +32,9 @@ async function verifyTurnstile(token, secret, ip) {
       body: new URLSearchParams({ secret, response: token, remoteip: ip || '' }),
     });
     const j = await resp.json();
-    return { ok: j && j.success === true, codes: j && j['error-codes'] ? j['error-codes'].join(',') : '' };
+    return j && j.success === true;
   } catch {
-    return { ok: false, codes: 'network-error' };
+    return false;
   }
 }
 
@@ -243,8 +242,8 @@ async function handleParse(request, env) {
   if (tsSecret) {
     const tsToken = reqUrl.searchParams.get('turnstile') || '';
     if (!tsToken) return json({ ok: false, error: '请先完成人机验证' }, 400);
-    const tsRes = await verifyTurnstile(tsToken, tsSecret, request.headers.get('cf-connecting-ip'));
-    if (!tsRes.ok) return json({ ok: false, error: '人机验证未通过，请重试' + (tsRes.codes ? '（' + tsRes.codes + '）' : '') }, 403);
+    const tsOk = await verifyTurnstile(tsToken, tsSecret, request.headers.get('cf-connecting-ip'));
+    if (!tsOk) return json({ ok: false, error: '人机验证未通过，请重试' }, 403);
   }
 
   // 解析冷却：同一 IP 60 秒内只能解析一次（防刷 API 烧积分）
@@ -362,8 +361,8 @@ async function handleFeedbackSubmit(request, env) {
   const tsSecret = (env.TURNSTILE_SECRET_KEY || '').trim();
   if (tsSecret) {
     if (!tsToken) return json({ ok: false, error: '请先完成人机验证' }, 400);
-    const tsRes = await verifyTurnstile(tsToken, tsSecret, request.headers.get('cf-connecting-ip'));
-    if (!tsRes.ok) return json({ ok: false, error: '人机验证未通过，请重试' + (tsRes.codes ? '（' + tsRes.codes + '）' : '') }, 403);
+    const tsOk = await verifyTurnstile(tsToken, tsSecret, request.headers.get('cf-connecting-ip'));
+    if (!tsOk) return json({ ok: false, error: '人机验证未通过，请重试' }, 403);
   }
 
   const COOLDOWN_SECS = 600;
