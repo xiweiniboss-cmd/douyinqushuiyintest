@@ -100,6 +100,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     <label class="flabel" for="fbFiles">📎 截图/录屏（可选，最多3个，单个≤20MB）</label>
     <input type="file" id="fbFiles" accept="image/*,video/*" multiple>
     <div id="tsWidget" style="margin-top:10px"></div>
+    <div id="fbErr" style="display:none;color:#ff8ba0;font-size:13px;margin-top:10px;line-height:1.6"></div>
     <div class="row">
       <button class="btn-ghost" id="fbCancel">取消</button>
       <button class="btn-ok" id="fbSubmit">提交反馈</button>
@@ -306,31 +307,59 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
 
     /* 反馈表单 */
   var tsWidgetId = null;
+  function showFbError(html){
+    var e = $('fbErr');
+    e.style.display = 'block';
+    e.innerHTML = html;
+  }
+  function hideFbError(){
+    var e = $('fbErr');
+    e.style.display = 'none';
+    e.innerHTML = '';
+  }
   function loadTurnstile(){
     if (tsWidgetId !== null) return;
     ensureTurnstileScript().then(function(siteKey){
-      try {
-        tsWidgetId = turnstile.render('#tsWidget', { sitekey: siteKey, theme: 'dark', language: 'zh-cn' });
-      } catch(e){}
-    }).catch(function(){});
+      // 等浏览器完成布局后再渲染：在 display:none 容器里渲染组件会直接卡死
+      requestAnimationFrame(function(){
+        setTimeout(function(){
+          try {
+            var el = document.getElementById('tsWidget');
+            if (el && el.offsetParent !== null) {
+              tsWidgetId = turnstile.render(el, { sitekey: siteKey, theme: 'dark', language: 'zh-cn' });
+            } else {
+              showFbError('验证组件加载失败，请关闭重试。');
+            }
+          } catch(e){
+            showFbError('验证组件加载失败，请关闭重试。');
+          }
+        }, 80);
+      });
+    }).catch(function(){
+      showFbError('验证组件加载失败，请检查网络后重试。');
+    });
   }
-  $('fbBtn').onclick = function(){ $('fbWrap').classList.add('show'); $('fbDone').style.display = 'none'; loadTurnstile(); };
+  $('fbBtn').onclick = function(){ $('fbWrap').classList.add('show'); $('fbDone').style.display = 'none'; hideFbError(); loadTurnstile(); };
   $('fbBackdrop').onclick = function(){ $('fbWrap').classList.remove('show'); };
   $('fbCancel').onclick = function(){ $('fbWrap').classList.remove('show'); };
   $('fbSubmit').onclick = async function(){
+    hideFbError();
     var msg = $('fbMsg').value.trim();
-    if(!msg){ showError('请先填写反馈内容。'); return; }
+    if(!msg){ showFbError('请先填写反馈内容。'); return; }
     var files = Array.prototype.slice.call($('fbFiles').files || []);
-    if(files.length > 3){ showError('最多上传 3 个附件。'); return; }
+    if(files.length > 3){ showFbError('最多上传 3 个附件。'); return; }
     for(var i = 0; i < files.length; i++){
       var f = files[i];
-      if(!/^(image|video)\//.test(f.type || '')){ showError('只支持图片和视频附件。'); return; }
-      if(f.size > 20 * 1024 * 1024){ showError('单个附件不能超过 20MB。'); return; }
+      if(!/^(image|video)\//.test(f.type || '')){ showFbError('只支持图片和视频附件。'); return; }
+      if(f.size > 20 * 1024 * 1024){ showFbError('单个附件不能超过 20MB。'); return; }
     }
     var tsToken = '';
     if (tsWidgetId !== null) {
       try { tsToken = turnstile.getResponse(tsWidgetId) || ''; } catch(e){}
-      if (!tsToken) { showError('请先完成人机验证。'); return; }
+      if (!tsToken) { showFbError('请先完成人机验证。'); return; }
+    } else {
+      showFbError('验证组件未加载完成，请稍等几秒再试。');
+      return;
     }
     var btn = $('fbSubmit');
     btn.disabled = true; btn.textContent = '提交中…';
@@ -348,9 +377,9 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
         $('fbDone').style.display = 'block';
         setTimeout(function(){ $('fbWrap').classList.remove('show'); }, 1600);
       } else {
-        showError('反馈提交失败：' + (j.error || '请稍后重试'));
+        showFbError('反馈提交失败：' + (j.error || '请稍后重试'));
       }
-    }catch(e){ showError('网络错误，请稍后重试。'); }
+    }catch(e){ showFbError('网络错误，请稍后重试。'); }
     if (tsWidgetId !== null) { try { turnstile.reset(tsWidgetId); } catch(e){} }
     btn.disabled = false; btn.textContent = '提交反馈';
   };
