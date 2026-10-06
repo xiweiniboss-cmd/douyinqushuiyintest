@@ -57,7 +57,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     <div class="hint" id="dlHint" style="display:none">iPhone 会弹出分享菜单，点「存储视频」即可保存到相册</div>
   </div>
 
-  <footer>解析仅供个人学习交流<br>请勿传播他人原创作品</footer>
+  <footer>解析仅供个人学习交流<br>请勿传播他人原创作品<br><a href="javascript:void(0)" id="diagLink" style="color:#55555f;font-size:11px">🔧 网络诊断</a></footer>
 </div>
 
 <script>
@@ -204,6 +204,22 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     }
     resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  // 网络诊断：验证 fetch 的 referrer 选项是否真的发出了 Referer 头
+  $('diagLink').onclick = function(){
+    showError('诊断中…正在请求 httpbin.org/headers');
+    dyFetch('https://httpbin.org/headers').then(function(res){
+      return res.json();
+    }).then(function(j){
+      var h = j.headers || {};
+      var referer = h.Referer || h.referer || '(无)';
+      var ua = (h['User-Agent'] || '').slice(0, 60);
+      showError('诊断结果：<br>对方收到的 Referer：<b>' + referer + '</b><br>User-Agent：' + ua +
+        '<br><br>如果 Referer 显示"无"或不是 https://www.douyin.com/，说明浏览器没发出该头，这就是下载 403 的原因。');
+    }).catch(function(e){
+      showError('诊断请求失败：' + (e.message || '网络错误'));
+    });
+  };
 
   parseBtn.onclick = function(){
     var text = urlInput.value.trim();
