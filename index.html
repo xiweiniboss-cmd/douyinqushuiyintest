@@ -40,7 +40,10 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
 
   <div class="card">
     <textarea id="urlInput" placeholder="在此粘贴抖音分享链接&#10;例如：https://v.douyin.com/xxxx/"></textarea>
-    <button class="btn" id="parseBtn">开始解析</button>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn ghost" id="pasteBtn" style="margin-top:0;flex:1">📋 一键粘贴</button>
+      <button class="btn" id="parseBtn" style="margin-top:0;flex:2">开始解析</button>
+    </div>
     <div class="hint">📋 在抖音 App 点「分享」→「复制链接」，粘贴到这里即可<br>🔒 仅解析公开作品，请勿用于侵权用途</div>
   </div>
 
@@ -63,6 +66,21 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
   var urlInput = $('urlInput'), parseBtn = $('parseBtn'), loading = $('loading'),
       errBox = $('err'), resultBox = $('result'), mediaBox = $('mediaBox'),
       dlBtn = $('dlBtn'), dlHint = $('dlHint');
+
+  // 一键粘贴：从剪贴板读取分享链接
+  $('pasteBtn').onclick = function(){
+    hideError();
+    if(navigator.clipboard && navigator.clipboard.readText){
+      navigator.clipboard.readText().then(function(t){
+        if(t && t.trim()){ urlInput.value = t.trim(); }
+        else showError('剪贴板是空的，请先去抖音 App 复制分享链接');
+      }).catch(function(){
+        showError('无法读取剪贴板，请手动长按输入框粘贴（iPhone 请允许 Safari 访问剪贴板）');
+      });
+    } else {
+      showError('当前浏览器不支持一键粘贴，请手动长按输入框粘贴');
+    }
+  };
 
   // 抖音 CDN 强校验 Referer：必须带 https://www.douyin.com/ 否则 403
   // fetch 的 referrer 选项是浏览器允许的设置 Referer 的正规方式
@@ -95,7 +113,7 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
       if(idx >= urls.length){
         resetParseBtn();
         showError('一键下载失败，各地址错误如下：<br>' + errLog.join('<br>') +
-          '<br><br>请确认网络可正常访问抖音，或稍后重试。');
+          '<br><br>💡 如果你开了 VPN（比如刚才下 TikTok 切的节点），<b>请先关掉 VPN 再试</b>：抖音 CDN 可能限制境外 IP 访问。<br>也可以稍后重试。');
         return;
       }
       var u = urls[idx++];
