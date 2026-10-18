@@ -509,12 +509,15 @@ var deviceId = (function(){
   };
 })();
 
-// 每日解析配额显示
+// 每日解析配额显示（注意：deviceId 声明在上方 IIFE 内部，此处直接读 localStorage，保证与解析计数用同一个 key）
 function refreshQuota(){
   var el = document.getElementById('quotaCount');
   if (!el) return;
   var qurl = '/api/parse-quota';
-  try { if (typeof deviceId !== 'undefined' && deviceId) qurl += '?deviceId=' + encodeURIComponent(deviceId); } catch(e){}
+  try {
+    var did = localStorage.getItem('device_id');
+    if (did) qurl += '?deviceId=' + encodeURIComponent(did);
+  } catch(e){}
   fetch(qurl).then(function(r){ return r.json(); }).then(function(j){
     if (j && j.ok && typeof j.remaining === 'number') el.textContent = j.remaining;
   }).catch(function(){});
