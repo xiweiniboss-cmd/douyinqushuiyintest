@@ -28,6 +28,10 @@ video#preview{ width:100%; max-height:60vh; border-radius:12px; background:#000;
 .grid img{ width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:8px; background:#101016; }
 .err{ display:none; background:rgba(254,44,85,.12); border:1px solid rgba(254,44,85,.4); color:#ff8ba0; font-size:13px; border-radius:12px; padding:12px; margin-top:14px; line-height:1.7; word-break:break-word; }
 .loading{ display:none; text-align:center; color:var(--muted); font-size:13px; margin-top:14px; }
+.dlprog{ display:none; margin-top:12px; }
+.dlprog .track{ height:10px; border-radius:6px; background:#2a2a34; overflow:hidden; }
+.dlprog .bar{ height:100%; width:0%; border-radius:6px; background:linear-gradient(90deg,var(--pink),#ff6b4a); transition:width .15s; }
+.dlprog .txt{ margin-top:6px; font-size:12px; color:var(--muted); text-align:center; }
 /* 反馈浮钮 + 底部弹窗 */
 #fbBtn{ position:fixed; right:18px; bottom:calc(22px + env(safe-area-inset-bottom)); width:52px; height:52px;
         border-radius:50%; border:none; font-size:24px; background:linear-gradient(135deg,var(--pink),#ff6b4a);
@@ -83,6 +87,10 @@ footer{ text-align:center; color:#55555f; font-size:11px; margin-top:30px; line-
     <div class="title" id="resTitle"></div>
     <div id="mediaBox"></div>
     <button class="btn" id="dlBtn" style="display:none">⬇ 一键下载无水印视频</button>
+    <div class="dlprog" id="dlProg">
+      <div class="track"><div class="bar" id="dlProgBar"></div></div>
+      <div class="txt" id="dlProgTxt">准备下载…</div>
+    </div>
     <div class="hint" id="dlHint" style="display:none">iPhone 会弹出分享菜单，点「存储视频」即可保存到相册</div>
   </div>
 
@@ -172,6 +180,58 @@ var deviceId = (function(){
   }
   function resetParseBtn(){ setParseBtn('开始解析', false); }
 
+  // 带进度的 blob 下载：流式读取响应体，按 Content-Length 计算百分比；
+  // 上游不给总长度时退化为"已接收 X MB"显示；不支持流的老浏览器直接走 blob()
+  function fetchBlobProgress(url, onProgress){
+    return fetch(url).then(function(res){
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      var total = parseInt(res.headers.get('Content-Length') || '0', 10) || 0;
+      var ctype = res.headers.get('Content-Type') || 'video/mp4';
+      if(!res.body || !res.body.getReader) return res.blob();
+      var reader = res.body.getReader();
+      var chunks = [];
+      var received = 0;
+      onProgress(0, total);
+      function pump(){
+        return reader.read().then(function(r){
+          if(r.done){
+            try{ reader.releaseLock(); }catch(e){}
+            return new Blob(chunks, { type: ctype });
+          }
+          chunks.push(r.value);
+          received += r.value.byteLength || r.value.length || 0;
+          onProgress(received, total);
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+  function fmtMB(b){ return (b/1048576).toFixed(1) + ' MB'; }
+  function setDlProg(received, total){
+    var wrap = document.getElementById('dlProg');
+    var bar = document.getElementById('dlProgBar');
+    var txt = document.getElementById('dlProgTxt');
+    wrap.style.display = 'block';
+    if(total > 0){
+      var pct = Math.min(100, Math.round(received / total * 100));
+      bar.style.width = pct + '%';
+      bar.style.opacity = '';
+      txt.textContent = '下载中 ' + pct + '%（' + fmtMB(received) + ' / ' + fmtMB(total) + '）';
+    }else{
+      bar.style.width = '100%';
+      bar.style.opacity = '.4';
+      txt.textContent = '下载中，已接收 ' + fmtMB(received) + '…';
+    }
+  }
+  function resetDlProg(){
+    var bar = document.getElementById('dlProgBar');
+    bar.style.width = '0%'; bar.style.opacity = '';
+    document.getElementById('dlProgTxt').textContent = '准备下载…';
+    document.getElementById('dlProg').style.display = 'block';
+  }
+  function hideDlProg(){ document.getElementById('dlProg').style.display = 'none'; }
+
   // 一键下载：经 /api/dl 代理逐个地址尝试，成功则经系统分享保存（iPhone 弹出菜单）
   function downloadFile(url, filename, altUrls){
     var urls = [url].concat(altUrls || []);
@@ -182,6 +242,7 @@ var deviceId = (function(){
     function tryNext(){
       if(idx >= urls.length){
         resetParseBtn();
+        hideDlProg();
         window._dyDebugUrls = urls;
         showError('一键下载失败，各地址错误如下：<br>' + errLog.join('<br>') +
           '<br><br>💡 如果你开了 VPN（比如刚才下 TikTok 切的节点），<b>请先关掉 VPN 再试</b>：抖音 CDN 可能限制境外 IP 访问。<br>' +
@@ -193,10 +254,10 @@ var deviceId = (function(){
       var curName = idx === 0 ? filename : fileName(filename.replace(/\.\w+$/, '') + '_' + idx, 'mp4');
       idx++;
       var shortUrl = u.length > 60 ? u.substring(0, 60) + '...' : u;
-      dyFetch(u, curName).then(function(res){
-        if(!res.ok) throw new Error('HTTP ' + res.status);
-        return res.blob();
-      }).then(function(blob){
+      resetDlProg();
+      if(urls.length > 1) document.getElementById('dlProgTxt').textContent = '正在连接地址' + idx + '/' + urls.length + '…';
+      fetchBlobProgress(dlProxy(u, curName), setDlProg).then(function(blob){
+        hideDlProg();
         var file = new File([blob], filename, { type: blob.type || 'video/mp4' });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           resetParseBtn();
