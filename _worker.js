@@ -339,7 +339,7 @@ async function handleDl(request) {
     return json({ ok: false, error: '无效的下载地址' }, 400);
   }
   const allowed =
-    /(^|\.)douyinvod\.com$|(^|\.)byteimg\.com$|(^|\.)ibyteimg\.com$|(^|\.)douyin\.com$|(^|\.)douyinpic\.com$|(^|\.)pstatp\.com$/i;
+    /(^|\.)douyinvod\.com$|(^|\.)byteimg\.com$|(^|\.)ibyteimg\.com$|(^|\.)douyin\.com$|(^|\.)douyinpic\.com$|(^|\.)pstatp\.com$|(^|\.)365yg\.com$/i;
   if (!/^https:$/.test(target.protocol) || !allowed.test(target.hostname))
     return json({ ok: false, error: '不支持的下载地址' }, 400);
   const ctrl = new AbortController();
