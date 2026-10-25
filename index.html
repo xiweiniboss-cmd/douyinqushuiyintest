@@ -168,7 +168,8 @@ body{ background:transparent; }
       <div class="track"><div class="bar" id="dlProgBar"></div></div>
       <div class="txt" id="dlProgTxt">准备下载…</div>
     </div>
-    <div class="hint" id="dlHint" style="display:none">iPhone 会弹出分享菜单，点「存储视频」即可保存到相册</div>
+    <button class="btn" id="saveBtn" style="display:none" onclick="window.__saveFile()">✅ 下载完成，点这里保存</button>
+    <div class="hint" id="dlHint" style="display:none">iPhone 会弹出分享菜单，点「存储视频」即可保存到相册；没弹出就点「点这里保存」</div>
   </div>
 
   <footer>解析仅供个人学习交流<br>请勿传播他人原创作品<br><a href="javascript:void(0)" id="diagLink" style="color:#55555f;font-size:11px">🔧 网络诊断</a></footer>
@@ -284,6 +285,49 @@ var deviceId = (function(){
       return pump();
     });
   }
+  // 下载完成后保存：iPhone 的分享菜单必须由“点击”直接触发，下载几十秒后再自动调用会被系统静默拒绝，
+  // 所以自动尝试一次，失败就亮出「点这里保存」按钮让用户再点一下（新的点击一定能弹出）。
+  var _pendingFile = null;
+  function __hkMime(name, t){
+    if (/\.m4a$/i.test(name)) return 'audio/mp4';
+    if (/\.mp4$/i.test(name)) return 'video/mp4';
+    return (t && t !== 'application/octet-stream') ? t : 'video/mp4';
+  }
+  function __hkLink(file){
+    var objUrl = URL.createObjectURL(file);
+    var a = document.createElement('a');
+    a.href = objUrl; a.download = file.name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(objUrl); }, 60000);
+  }
+  function __hkCanShare(file){
+    try { return !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch(e){ return false; }
+  }
+  function __hkShowBtn(file){
+    _pendingFile = file;
+    var btn = document.getElementById('saveBtn');
+    btn.textContent = '✅ 下载完成，点这里保存（' + fmtMB(file.size) + '）';
+    btn.style.display = 'block';
+    btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function __hkHideBtn(){ _pendingFile = null; var b = document.getElementById('saveBtn'); if (b) b.style.display = 'none'; }
+  function __hkSaveFile(file, fromTap){
+    if (__hkCanShare(file)) {
+      return navigator.share({ files: [file], title: file.name }).then(__hkHideBtn).catch(function(e){
+        if (e && e.name === 'AbortError') { if (!fromTap) __hkShowBtn(file); return; }
+        if (fromTap) { __hkLink(file); __hkHideBtn(); }
+        else __hkShowBtn(file);
+      });
+    }
+    __hkLink(file);
+    if (fromTap) __hkHideBtn(); else __hkShowBtn(file);
+  }
+  function __hkSave(blob, filename){
+    if (!blob || blob.size < 1024) throw new Error('文件为空或已失效，请重新解析');
+    if (/json|html/i.test(blob.type || '')) throw new Error('服务器返回的不是视频，请重新解析');
+    __hkSaveFile(new File([blob], filename, { type: __hkMime(filename, blob.type) }), false);
+  }
+  window.__saveFile = function(){ if (_pendingFile) __hkSaveFile(_pendingFile, true); };
   function fmtMB(b){ return (b/1048576).toFixed(1) + ' MB'; }
   function setDlProg(received, total){
     var wrap = document.getElementById('dlProg');
@@ -314,7 +358,7 @@ var deviceId = (function(){
     var urls = [url].concat(altUrls || []);
     var idx = 0;
     var errLog = [];
-    setParseBtn('正在准备下载…', true);
+    setParseBtn('正在准备下载…', true); __hkHideBtn();
 
     function tryNext(){
       if(idx >= urls.length){
@@ -335,17 +379,8 @@ var deviceId = (function(){
       if(urls.length > 1) document.getElementById('dlProgTxt').textContent = '正在连接地址' + idx + '/' + urls.length + '…';
       fetchBlobProgress(dlProxy(u, curName), setDlProg).then(function(blob){
         hideDlProg();
-        var file = new File([blob], filename, { type: blob.type || 'video/mp4' });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          resetParseBtn();
-          return navigator.share({ files: [file], title: filename }).catch(function(){});
-        }
-        var objUrl = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = objUrl; a.download = filename;
-        document.body.appendChild(a); a.click();
-        setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(objUrl); }, 4000);
         resetParseBtn();
+        __hkSave(blob, filename);
       }).catch(function(e){
         errLog.push('地址' + idx + ' (' + shortUrl + '): ' + (e.message || '网络错误'));
         tryNext();
