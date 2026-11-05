@@ -30,9 +30,16 @@ textarea:focus{ border-color:#FE2C55; box-shadow:0 0 0 4px rgba(255,255,255,.06)
 textarea::placeholder{ color:var(--faint); }
 .btn{ display:block; width:100%; margin-top:12px; padding:14px; border:none; border-radius:14px; font-size:16px; font-weight:700; color:#fff; background:linear-gradient(92deg,#0E7C86,#161823 52%,#FE2C55); cursor:pointer; box-shadow:0 12px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.3); transition:transform .08s ease-out, opacity .2s; transform:scale(1); }
 .btn:active{ transform:scale(.96); transition:transform .04s ease-out; }
-/* 开始解析：按下缩小，松开时弹性回弹 */
-#parseBtn{ transform-origin:center; transition:transform .46s cubic-bezier(.18,1.6,.28,1), opacity .2s; }
-#parseBtn:active{ transform:scale(.9); transition:transform .06s ease-out; }
+/* 开始解析：点按立刻回弹。缩放只作用在文字上，按钮本体不动，避免 iOS 快按点不中、只有长按才缩下去 */
+#parseBtn, #parseBtn:active{ transform:none; transition:opacity .2s; touch-action:manipulation; }
+#parseBtn .press-label{ display:inline-block; transform-origin:center; pointer-events:none; }
+#parseBtn.bounce .press-label{ animation:parseBounce .42s cubic-bezier(.22,.9,.24,1) both; }
+@keyframes parseBounce{
+  0%{ transform:scale(1); }
+  28%{ transform:scale(.86); }
+  62%{ transform:scale(1.07); }
+  100%{ transform:scale(1); }
+}
 .btn:disabled{ opacity:.55; }
 .btn.ghost{ background:rgba(255,255,255,.07); border:1px solid var(--line); color:var(--muted); box-shadow:none; font-weight:500; }
 .btn.ghost::after{ display:none; }
@@ -182,7 +189,7 @@ body{ background:transparent; }
         <button class="btn ghost" id="pasteBtn">📋 一键粘贴</button>
       </div>
     </div>
-    <button class="btn" id="parseBtn">开始解析</button>
+    <button class="btn" id="parseBtn"><span class="press-label">开始解析</span></button>
     <div id="tsParseWidget" style="margin-top:10px"></div>
     <div class="hint">📋 在抖音 App 点「分享」→「复制链接」，粘贴到这里即可<br>🔒 仅解析公开作品，请勿用于侵权用途</div>
   </div>
@@ -305,7 +312,14 @@ var deviceId = (function(){
   }
   function hideError(){ errBox.style.display = 'none'; errBox.innerHTML = ''; }
   function setParseBtn(t, disabled){
-    parseBtn.textContent = t;
+    var label = parseBtn.querySelector('.press-label');
+    if(!label){
+      label = document.createElement('span');
+      label.className = 'press-label';
+      parseBtn.textContent = '';
+      parseBtn.appendChild(label);
+    }
+    label.textContent = t;
     parseBtn.disabled = !!disabled;
   }
   function resetParseBtn(){ setParseBtn('开始解析', false); }
@@ -626,6 +640,13 @@ var deviceId = (function(){
   fetch('/api/stats').then(function(r){ return r.json(); }).then(function(j){
     if (j.ok && typeof j.parseCount === 'number') $('parseCount').textContent = j.parseCount;
   }).catch(function(){});
+
+  parseBtn.addEventListener('pointerdown', function(){
+    if(parseBtn.disabled) return;
+    parseBtn.classList.remove('bounce');
+    void parseBtn.offsetWidth;
+    parseBtn.classList.add('bounce');
+  });
 
   parseBtn.onclick = function(){
     var text = urlInput.value.trim();
