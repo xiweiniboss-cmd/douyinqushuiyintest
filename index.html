@@ -30,6 +30,9 @@ textarea:focus{ border-color:#FE2C55; box-shadow:0 0 0 4px rgba(255,255,255,.06)
 textarea::placeholder{ color:var(--faint); }
 .btn{ display:block; width:100%; margin-top:12px; padding:14px; border:none; border-radius:14px; font-size:16px; font-weight:700; color:#fff; background:linear-gradient(92deg,#0E7C86,#161823 52%,#FE2C55); cursor:pointer; box-shadow:0 12px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.3); transition:transform .08s ease-out, opacity .2s; transform:scale(1); }
 .btn:active{ transform:scale(.96); transition:transform .04s ease-out; }
+/* 开始解析：按下缩小，松开时弹性回弹 */
+#parseBtn{ transform-origin:center; transition:transform .46s cubic-bezier(.18,1.6,.28,1), opacity .2s; }
+#parseBtn:active{ transform:scale(.9); transition:transform .06s ease-out; }
 .btn:disabled{ opacity:.55; }
 .btn.ghost{ background:rgba(255,255,255,.07); border:1px solid var(--line); color:var(--muted); box-shadow:none; font-weight:500; }
 .btn.ghost::after{ display:none; }
