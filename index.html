@@ -30,16 +30,25 @@ textarea:focus{ border-color:#FE2C55; box-shadow:0 0 0 4px rgba(255,255,255,.06)
 textarea::placeholder{ color:var(--faint); }
 .btn{ display:block; width:100%; margin-top:12px; padding:14px; border:none; border-radius:14px; font-size:16px; font-weight:700; color:#fff; background:linear-gradient(92deg,#0E7C86,#161823 52%,#FE2C55); cursor:pointer; box-shadow:0 12px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.3); transition:transform .08s ease-out, opacity .2s; transform:scale(1); }
 .btn:active{ transform:scale(.96); transition:transform .04s ease-out; }
-/* 开始解析：点按立刻回弹。缩放只作用在文字上，按钮本体不动，避免 iOS 快按点不中、只有长按才缩下去 */
-#parseBtn, #parseBtn:active{ transform:none; transition:opacity .2s; touch-action:manipulation; }
-#parseBtn .press-label{ display:inline-block; transform-origin:center; pointer-events:none; }
-#parseBtn.bounce .press-label{ animation:parseBounce .42s cubic-bezier(.22,.9,.24,1) both; }
-@keyframes parseBounce{
-  0%{ transform:scale(1); }
-  28%{ transform:scale(.86); }
-  62%{ transform:scale(1.07); }
-  100%{ transform:scale(1); }
+/* 开始解析：整颗按钮按压 + 弹簧回弹。全部由 JS 加类驱动，不依赖 :active（iOS 快点时 :active 几乎不出现） */
+#parseBtn{ touch-action:manipulation; user-select:none; -webkit-user-select:none; will-change:transform; transform:translateZ(0) scale(1);
+  transition:transform .32s cubic-bezier(.34,1.56,.64,1), box-shadow .32s ease, filter .25s ease, opacity .2s; }
+#parseBtn:active{ transform:translateZ(0) scale(1); }
+#parseBtn .press-label{ position:relative; z-index:2; display:inline-block; pointer-events:none; }
+#parseBtn.is-pressed{ transform:translateZ(0) translateY(1px) scale(.95); filter:brightness(.9) saturate(1.1);
+  box-shadow:0 4px 10px rgba(0,0,0,.4), inset 0 2px 6px rgba(0,0,0,.35); transition:transform .09s ease-out, box-shadow .09s ease-out, filter .09s ease-out; }
+#parseBtn.is-release{ animation:parseSpring .52s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes parseSpring{
+  0%{ transform:translateZ(0) translateY(1px) scale(.95); }
+  35%{ transform:translateZ(0) translateY(-1px) scale(1.035); }
+  60%{ transform:translateZ(0) scale(.99); }
+  80%{ transform:translateZ(0) scale(1.008); }
+  100%{ transform:translateZ(0) scale(1); }
 }
+#parseBtn .press-ripple{ position:absolute; z-index:1; border-radius:50%; pointer-events:none; transform:translate(-50%,-50%) scale(0);
+  background:radial-gradient(circle, rgba(255,255,255,.38) 0%, rgba(255,255,255,.12) 45%, rgba(255,255,255,0) 70%); animation:parseRipple .6s ease-out forwards; }
+@keyframes parseRipple{ to{ transform:translate(-50%,-50%) scale(1); opacity:0; } }
+@media (prefers-reduced-motion: reduce){ #parseBtn, #parseBtn.is-pressed{ transition:none; } #parseBtn.is-release{ animation:none; } #parseBtn .press-ripple{ display:none; } }
 .btn:disabled{ opacity:.55; }
 .btn.ghost{ background:rgba(255,255,255,.07); border:1px solid var(--line); color:var(--muted); box-shadow:none; font-weight:500; }
 .btn.ghost::after{ display:none; }
@@ -641,12 +650,43 @@ var deviceId = (function(){
     if (j.ok && typeof j.parseCount === 'number') $('parseCount').textContent = j.parseCount;
   }).catch(function(){});
 
-  parseBtn.addEventListener('pointerdown', function(){
-    if(parseBtn.disabled) return;
-    parseBtn.classList.remove('bounce');
-    void parseBtn.offsetWidth;
-    parseBtn.classList.add('bounce');
-  });
+  /* 按压动画：按下立刻缩、至少保持 90ms 让快点也看得见，松开弹簧回弹 + 从手指位置扩散的光圈 */
+  (function(){
+    var downAt = 0, pressed = false, relTimer = null;
+    function press(e){
+      if(parseBtn.disabled) return;
+      pressed = true; downAt = Date.now();
+      clearTimeout(relTimer);
+      parseBtn.classList.remove('is-release');
+      parseBtn.classList.add('is-pressed');
+      var r = parseBtn.getBoundingClientRect();
+      var x = (e && e.clientX != null ? e.clientX : r.left + r.width / 2) - r.left;
+      var y = (e && e.clientY != null ? e.clientY : r.top + r.height / 2) - r.top;
+      var d = Math.max(r.width, r.height) * 2.2;
+      var rp = document.createElement('span');
+      rp.className = 'press-ripple';
+      rp.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + d + 'px;height:' + d + 'px';
+      parseBtn.appendChild(rp);
+      setTimeout(function(){ if(rp.parentNode) rp.parentNode.removeChild(rp); }, 650);
+    }
+    function release(){
+      if(!pressed) return;
+      pressed = false;
+      var wait = Math.max(0, 90 - (Date.now() - downAt));
+      relTimer = setTimeout(function(){
+        parseBtn.classList.remove('is-pressed');
+        void parseBtn.offsetWidth;
+        parseBtn.classList.add('is-release');
+      }, wait);
+    }
+    parseBtn.addEventListener('pointerdown', press);
+    parseBtn.addEventListener('pointerup', release);
+    parseBtn.addEventListener('pointercancel', release);
+    parseBtn.addEventListener('pointerleave', release);
+    parseBtn.addEventListener('animationend', function(e){ if(e.animationName === 'parseSpring') parseBtn.classList.remove('is-release'); });
+    parseBtn.addEventListener('keydown', function(e){ if((e.key === 'Enter' || e.key === ' ') && !e.repeat) press(); });
+    parseBtn.addEventListener('keyup', function(e){ if(e.key === 'Enter' || e.key === ' ') release(); });
+  })();
 
   parseBtn.onclick = function(){
     var text = urlInput.value.trim();
