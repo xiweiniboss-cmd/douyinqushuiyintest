@@ -2,8 +2,20 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>抖音无水印解析下载</title>
+<meta name="description" content="粘贴抖音分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
+<meta name="theme-color" content="#141415">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141415'/%3E%3Cpath d='M14 24V14h10M40 14h10v10M50 40v10H40M24 50H14V40' fill='none' stroke='%23FE2C55' stroke-width='4'/%3E%3Cpath d='M27 22v20l16-10z' fill='%23FE2C55'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="抖音无水印解析下载">
+<meta property="og:title" content="抖音无水印解析下载">
+<meta property="og:description" content="粘贴抖音分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
+<meta property="og:url" content="https://douyinqushuiyin.pages.dev/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="抖音无水印解析下载">
+<meta name="twitter:description" content="粘贴抖音分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
 <link rel="stylesheet" href="jiexi.css">
 </head>
 <body>
@@ -210,11 +222,19 @@ var deviceId = (function(){
   function fileName(base, ext){
     return 'douyin_' + String(base).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.' + ext;
   }
-  function showError(html){
+  function showError(text, actions){
+    // 纯文本显示（textContent），换行用 \n；需要按钮时用 actions 以 DOM 方式追加，绝不把接口返回的文字当 HTML
     errBox.style.display = 'block';
-    errBox.innerHTML = html;
+    errBox.style.whiteSpace = 'pre-line';
+    errBox.textContent = String(text == null ? '' : text);
+    (actions || []).forEach(function(a){
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn ghost'; b.style.marginTop = '10px'; b.style.display = 'block';
+      b.textContent = a.label; b.onclick = a.onClick;
+      errBox.appendChild(b);
+    });
   }
-  function hideError(){ errBox.style.display = 'none'; errBox.innerHTML = ''; }
+  function hideError(){ errBox.style.display = 'none'; errBox.textContent = ''; }
   function setParseBtn(t, disabled){
     var label = parseBtn.querySelector('.press-label');
     if(!label){
@@ -335,10 +355,12 @@ var deviceId = (function(){
         resetParseBtn();
         hideDlProg();
         window._dyDebugUrls = urls;
-        showError('一键下载失败，各地址错误如下：<br>' + errLog.join('<br>') +
-          '<br><br>如果你开了 VPN（比如刚才下 TikTok 切的节点），<b>请先关掉 VPN 再试</b>：抖音 CDN 可能限制境外 IP 访问。<br>' +
-          '另外检查 <b>设置 → Apple ID → iCloud → 专用代理</b> 是否开着，开着的话 Safari 流量会走境外出口，也会导致 403，关掉再试。<br>' +
-          '也可以稍后重试。<br><br><button class="btn ghost" style="margin-top:4px" onclick="navigator.clipboard.writeText(window._dyDebugUrls.join(\'\\n\')).then(function(){alert(\'已复制，请发给开发者分析\')})">复制完整视频地址</button>');
+        showError('一键下载失败，各地址错误如下：\n' + errLog.join('\n') +
+          '\n\n如果开着 VPN，请先关掉再试：抖音 CDN 可能限制境外 IP 访问。\n' +
+          'iPhone 还要检查「设置 → Apple ID → iCloud → 专用代理」是否开着，开着也会导致 403。\n' +
+          '也可以稍后重试。', [{ label: '复制完整视频地址', onClick: function(){
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(urls.join('\n')).then(function(){ alert('已复制，可以贴到问题反馈里'); }).catch(function(){ alert('复制失败'); });
+          } }]);
         return;
       }
       var u = urls[idx];
@@ -429,49 +451,95 @@ var deviceId = (function(){
       var h = j.headers || {};
       var referer = h.Referer || h.referer || '(无)';
       var ua = (h['User-Agent'] || '').slice(0, 60);
-      showError('诊断结果：<br>对方收到的 Referer：<b>' + referer + '</b><br>User-Agent：' + ua +
-        '<br><br>如果 Referer 显示"无"或不是 https://www.douyin.com/，说明浏览器没发出该头，这就是下载 403 的原因。');
+      showError('诊断结果：\n对方收到的 Referer：' + referer + '\nUser-Agent：' + ua +
+        '\n\n如果 Referer 显示"无"或不是 https://www.douyin.com/，说明浏览器没发出该头，这就是下载 403 的原因。');
     }).catch(function(e){
       showError('诊断请求失败：' + (e.message || '网络错误'));
     });
   };
 
-  /* 解析区人机验证（与反馈共用一次脚本加载，重复引入会卡死组件） */
-  var _tsScriptPromise = null;
-  function ensureTurnstileScript(){
-    if (_tsScriptPromise) return _tsScriptPromise;
-    _tsScriptPromise = fetch('/api/turnstile-key').then(function(r){ return r.json(); }).then(function(j){
-      if (!j.ok || !j.siteKey) throw new Error('no site key');
-      return new Promise(function(resolve, reject){
-        if (window.turnstile) { resolve(j.siteKey); return; }
+  /* 解析区人机验证：与反馈共用 JxTs 的一次脚本加载（重复引入会卡死组件） */
+
+  /* 人机验证（懒加载）：首屏不加载 Turnstile，用户第一次点「开始解析」（或打开反馈）时才拉脚本并渲染。
+     站点公钥从 /api/turnstile-key 取；后端没配公钥时返回空，这里就直接放行（后端也不会校验）。
+     脚本全页只加载一次（重复引入会卡死组件）；每个需要验证的位置用 JxTs.make() 各自一个组件。 */
+  var JxTs = (function(){
+    var keyP = null, scriptP = null;
+    function siteKey(){
+      if (!keyP) keyP = fetch('/api/turnstile-key').then(function(r){ return r.json(); })
+        .then(function(j){ return (j && j.ok && j.siteKey) ? String(j.siteKey) : ''; })
+        .catch(function(){ keyP = null; return ''; });
+      return keyP;
+    }
+    function script(){
+      if (window.turnstile) return Promise.resolve();
+      if (!scriptP) scriptP = new Promise(function(resolve, reject){
         var s = document.createElement('script');
-        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-        s.async = true; s.defer = true;
-        s.onload = function(){ resolve(j.siteKey); };
-        s.onerror = function(){ reject(new Error('script load failed')); };
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        s.async = true;
+        s.onload = function(){ resolve(); };
+        s.onerror = function(){ scriptP = null; reject(new Error('人机验证组件加载失败，请检查网络后重试')); };
         document.head.appendChild(s);
       });
-    });
-    return _tsScriptPromise;
+      return scriptP;
+    }
+    function make(boxId){
+      var wid = null, waiters = [];
+      function flush(ok, val){ var w = waiters; waiters = []; w.forEach(function(f){ ok ? f[0](val) : f[1](val); }); }
+      // 取一个可用 token：需要时渲染组件并等验证完成；后端没配公钥时返回 ''
+      function token(){
+        return siteKey().then(function(k){
+          if (!k) return '';
+          return script().then(function(){
+            return new Promise(function(resolve, reject){
+              var timer = setTimeout(function(){ reject(new Error('人机验证超时，请完成验证后再点一次')); }, 120000);
+              var done = function(t){ clearTimeout(timer); resolve(t); };
+              var fail = function(e){ clearTimeout(timer); reject(e || new Error('人机验证未通过，请再点一次')); };
+              if (wid === null) {
+                var box = document.getElementById(boxId);
+                if (!box) { fail(new Error('人机验证组件加载失败，请刷新页面重试')); return; }
+                box.style.display = '';
+                try {
+                  wid = turnstile.render(box, {
+                    sitekey: k, theme: 'dark', language: 'zh-cn',
+                    callback: function(t){ flush(true, t); },
+                    'error-callback': function(){ flush(false, new Error('人机验证出错，请再点一次')); return true; },
+                    'expired-callback': function(){ try { turnstile.reset(wid); } catch (e) {} }
+                  });
+                } catch (e) { fail(new Error('人机验证组件加载失败，请刷新页面重试')); return; }
+              } else {
+                var cur = '';
+                try { cur = turnstile.getResponse(wid) || ''; } catch (e) {}
+                if (cur) { done(cur); return; }
+              }
+              waiters.push([done, fail]);
+            });
+          });
+        });
+      }
+      // token 只能用一次：请求发出后重置，下次会重新验证（通常无感自动完成）
+      function used(){ if (wid !== null) { try { turnstile.reset(wid); } catch (e) {} } }
+      return { token: token, used: used };
+    }
+    return { siteKey: siteKey, script: script, make: make };
+  })();
+  
+  var JxTsParse = JxTs.make('tsParseWidget');
+  function ensureTurnstileScript(){
+    return JxTs.siteKey().then(function(k){ if (!k) throw new Error('no site key'); return JxTs.script().then(function(){ return k; }); });
   }
-  var tsParseWidgetId = null;
-  ensureTurnstileScript().then(function(siteKey){
-    try {
-      tsParseWidgetId = turnstile.render('#tsParseWidget', { sitekey: siteKey, theme: 'dark', language: 'zh-cn' });
-    } catch(e){}
-  }).catch(function(){});
 
     /* 反馈表单 */
   var tsWidgetId = null;
-  function showFbError(html){
+  function showFbError(text){
     var e = $('fbErr');
     e.style.display = 'block';
-    e.innerHTML = html;
+    e.textContent = String(text == null ? '' : text);
   }
   function hideFbError(){
     var e = $('fbErr');
     e.style.display = 'none';
-    e.innerHTML = '';
+    e.textContent = '';
   }
   function loadTurnstile(){
     if (tsWidgetId !== null) return;
@@ -648,7 +716,7 @@ var deviceId = (function(){
 
   /* 本站解析次数 */
   fetch('/api/stats').then(function(r){ return r.json(); }).then(function(j){
-    if (j.ok && typeof j.parseCount === 'number') $('parseCount').textContent = j.parseCount;
+    $('parseCount').textContent = (j && j.ok && typeof j.parseCount === 'number') ? j.parseCount : '-';
   }).catch(function(){});
 
   /* 按压动画：按下立刻缩、至少保持 90ms 让快点也看得见，松开弹簧回弹 + 从手指位置扩散的光圈 */
@@ -694,17 +762,16 @@ var deviceId = (function(){
     hideError();
     resultBox.style.display = 'none';
     if(!text){ showError('请先粘贴抖音分享链接'); return; }
-    var tsToken = '';
-    if (tsParseWidgetId !== null) {
-      try { tsToken = turnstile.getResponse(tsParseWidgetId) || ''; } catch(e){}
-      if (!tsToken) { showError('请先完成人机验证'); return; }
-    }
+    if (parseBtn.disabled) return;
+    setParseBtn('人机验证中…', true);
+    JxTsParse.token().then(function(tsToken){
     setParseBtn('解析中…', true);
     loading.style.display = 'block';
     var apiUrl = '/api/parse?url=' + encodeURIComponent(text);
     if (deviceId) apiUrl += '&deviceId=' + encodeURIComponent(deviceId);
     if (tsToken) apiUrl += '&turnstile=' + encodeURIComponent(tsToken);
-    fetch(apiUrl)
+    JxTsParse.used();
+    return fetch(apiUrl)
       .then(function(r){ return r.text().then(function(t){
         var ct = r.headers.get('content-type') || '';
         if(!/json/i.test(ct)) throw new Error('服务异常（HTTP ' + r.status + '），请稍后重试');
@@ -713,7 +780,6 @@ var deviceId = (function(){
       .then(function(data){
         loading.style.display = 'none';
         resetParseBtn();
-        if (tsParseWidgetId !== null) { try { turnstile.reset(tsParseWidgetId); } catch(e){} }
         if(!data.ok) throw new Error(data.error || '解析失败');
         renderResult(data);
         try { if (window.JiexiHistory) window.JiexiHistory.add({ url: text, title: data.title, cover: data.cover || (data.images && data.images[0]) || '' }); } catch(e){}
@@ -727,12 +793,15 @@ var deviceId = (function(){
       .catch(function(e){
         loading.style.display = 'none';
         resetParseBtn();
-        if (tsParseWidgetId !== null) { try { turnstile.reset(tsParseWidgetId); } catch(e){} }
         var msg = String(e.message || '解析失败');
         if(/did not match the expected pattern|Unexpected token/i.test(msg))
           msg = '服务暂时不可用，请稍后重试';
         showError('解析失败：' + msg);
       });
+    }, function(e){
+      resetParseBtn();
+      showError(String((e && e.message) || '人机验证未完成，请再点一次'));
+    });
   };
 })();
 
