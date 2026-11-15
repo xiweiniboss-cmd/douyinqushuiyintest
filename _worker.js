@@ -12,6 +12,9 @@ const UA_MOBILE =
 const UA_PC =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
+// 附件类型白名单：浏览器传上来的 type 可被伪造，image/svg+xml 这类能带脚本的类型一律拒收
+const SAFE_ATTACH_TYPE = /^(image\/(png|jpe?g|pjpeg|gif|webp|heic|heif|avif|bmp)|video\/[a-z0-9.+-]+)$/i;
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -278,12 +281,12 @@ async function handleParse(request, env) {
     }
   }
 
-  // 每日解析限额：同一设备每天最多 20 次（防换 IP 刷 API 烧积分），按北京时间算天
+  // 每日解析限额：同一 IP 每天最多 20 次（deviceId 前端可随意改，不能作为限额依据），按北京时间算天
   const DAILY_LIMIT = 20;
   const bjDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const parseUrl = new URL(request.url);
   const deviceId = parseUrl.searchParams.get('deviceId') || '';
-  const quotaId = deviceId || parseIp;
+  const quotaId = parseIp || deviceId; // 按 IP 计配额：deviceId 由前端传，换一个就能绕过
   const quotaKey = 'dlimit_douyin_' + quotaId + '_' + bjDate;
   let usedToday = 0;
   if (parseIp && env.FEEDBACK_KV) {
@@ -454,7 +457,7 @@ async function handleFeedbackSubmit(request, env) {
     if (!env.FEEDBACK_BUCKET) return json({ ok: false, error: '附件功能暂未启用' }, 500);
     for (const f of files) {
       const type = f.type || '';
-      if (!/^(image|video)\//.test(type))
+      if (!SAFE_ATTACH_TYPE.test(type))
         return json({ ok: false, error: '只支持图片和视频附件' }, 400);
       if (f.size > 20 * 1024 * 1024)
         return json({ ok: false, error: '单个附件不能超过 20MB' }, 400);
@@ -558,6 +561,14 @@ async function handleFeedbackFile(request, env) {
   if (!obj) return new Response('文件不存在', { status: 404 });
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
+  // 附件是用户上传的：禁止嗅探、沙箱化；旧数据里不在白名单的类型（如 SVG）一律按附件下载，不在本站域名下渲染
+  if (!SAFE_ATTACH_TYPE.test(headers.get('content-type') || '')) {
+    headers.set('Content-Type', 'application/octet-stream');
+    headers.set('Content-Disposition', 'attachment');
+  }
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+  headers.set('Referrer-Policy', 'no-referrer');
   headers.set('Cache-Control', 'private, max-age=3600');
   return new Response(obj.body, { headers });
 }
@@ -896,7 +907,7 @@ async function handleParseQuota(request, env) {
   const url = new URL(request.url);
   const ip = request.headers.get('cf-connecting-ip') || '';
   const deviceId = url.searchParams.get('deviceId') || '';
-  const quotaId = deviceId || ip;
+  const quotaId = ip || deviceId; // 与解析接口一致，按 IP 查
   const bjDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   let used = 0;
   if (quotaId && env.FEEDBACK_KV) {
@@ -975,7 +986,7 @@ export default {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         });
       return new Response(DASHBOARD_HTML, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' },
       });
     }
     if (url.pathname === '/admin') {
@@ -985,7 +996,7 @@ export default {
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         });
       return new Response(ADMIN_HTML, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' },
       });
     }
 
