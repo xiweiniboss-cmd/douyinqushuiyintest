@@ -294,7 +294,8 @@ function extractDouyinUrl(text) {
 }
 
 // 只认抖音自家域名：先 new URL() 取 hostname，再按「等于或以 .域名 结尾」判断（不能只看整串里有没有 douyin.com）
-const DOUYIN_HOSTS = ['douyin.com', 'iesdouyin.com'];
+// amemv.com 是抖音的老域名（www.amemv.com 301 到 www.douyin.com），只用于识别输入和跟随跳转；下载代理 DL_HOSTS 不变
+const DOUYIN_HOSTS = ['douyin.com', 'iesdouyin.com', 'amemv.com'];
 function hostMatches(host, list) {
   host = String(host || '').toLowerCase().replace(/\.$/, '');
   return list.some((d) => host === d || host.endsWith('.' + d));
@@ -461,7 +462,7 @@ async function handleParse(request, env) {
   if (!shareText.trim()) return json({ ok: false, error: '请先粘贴抖音分享链接' }, 400);
   // 文案里有链接但不是本站支持的域名：直接拒绝，不调用计费接口（按解析后的 hostname 判断）
   const firstLink = (String(shareText).match(/https?:\/\/[^\s"'<>]+/) || [])[0] || '';
-  if (firstLink && !isDouyinUrl(firstLink)) return json({ ok: false, error: '只支持抖音链接（douyin.com / iesdouyin.com）' }, 400);
+  if (firstLink && !isDouyinUrl(firstLink)) return json({ ok: false, error: '只支持抖音链接（douyin.com / iesdouyin.com / amemv.com）' }, 400);
   // debug 输出上游数据结构，只给带管理口令的请求
   const debug = reqUrl.searchParams.get('debug') === '1' && (await isAdmin(request, env));
 
