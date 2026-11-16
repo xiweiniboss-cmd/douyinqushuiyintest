@@ -39,7 +39,7 @@ function ipLimitKey(ip) {
 // 冷却 60 秒 + 每 IP（IPv6 按 /64）每天（北京时间）20 次。解析之前用一条 UPSERT 原子地「判断 + 占坑」：
 //   并发一批请求只有第一个能占到坑；失败的解析也算一次（不能拿坏链接无限刷上游接口）。
 // D1 出错 / 超过 2 秒：直接拒绝（503「服务繁忙，请稍后再试」），不再退回 KV。
-// 只有根本没绑 PARSE_DB（本地 / 测试）才用 KV 先占坑（非原子，只是兜底）；KV 也出错同样拒绝。
+// 缺少 PARSE_DB 同样拒绝；本地测试需提供 D1，预览不再回退 KV。
 const RL_COOLDOWN_SECS = 60;
 const RL_DAILY_LIMIT = 20;
 const RL_TIMEOUT_MS = 2000;
@@ -61,7 +61,7 @@ function rlDeny(now, last, used, limit = RL_DAILY_LIMIT, cooldownSecs = RL_COOLD
 }
 async function rateTake(env, site, rawIp, limit = RL_DAILY_LIMIT, cooldownSecs = RL_COOLDOWN_SECS) {
   const ip = ipLimitKey(rawIp);
-  if (!ip) return { ok: true };
+  if (!ip) return RL_BUSY;
   const now = Date.now();
   const k = site + ':' + ip + ':' + rlDate();
   const db = env && env.PARSE_DB;
@@ -76,25 +76,11 @@ async function rateTake(env, site, rawIp, limit = RL_DAILY_LIMIT, cooldownSecs =
       return rlDeny(now, Number(cur && cur.last) || 0, Number(cur && cur.n) || 0, limit, cooldownSecs) || { ok: false, status: 429, msg: '解析太频繁，请稍后再试' };
     } catch (e) { return RL_BUSY; } // D1 挂了 / 超时：拒绝，不退回 KV
   }
-  const kv = env && env.FEEDBACK_KV;
-  if (kv) {
-    try {
-      const ck = 'pcool_' + site + '_' + ip, qk = 'dlimit_' + site + '_' + ip + '_' + rlDate();
-      const [lastTs, usedRaw] = await Promise.all([kv.get(ck), kv.get(qk)]);
-      const used = Number(usedRaw) || 0;
-      const deny = rlDeny(now, Number(lastTs) || 0, used, limit, cooldownSecs);
-      if (deny) return deny;
-      await Promise.all([
-        cooldownSecs > 0 ? kv.put(ck, String(now), { expirationTtl: Math.max(60, cooldownSecs) }) : null,
-        kv.put(qk, String(used + 1), { expirationTtl: 172800 }),
-      ]);
-    } catch { return RL_BUSY; }
-  }
-  return { ok: true };
+  return RL_BUSY; // Missing D1 is a configuration failure, including public previews.
 }
 async function rateUsed(env, site, rawIp) {
   const ip = ipLimitKey(rawIp);
-  if (!ip) return 0;
+  if (!ip) return null;
   const db = env && env.PARSE_DB;
   if (db && typeof db.prepare === 'function') {
     try {
@@ -102,7 +88,7 @@ async function rateUsed(env, site, rawIp) {
       return Number(cur && cur.n) || 0;
     } catch {}
   }
-  try { return Number((await env.FEEDBACK_KV.get('dlimit_' + site + '_' + ip + '_' + rlDate())) || 0); } catch { return 0; }
+  return null; // Unknown quota must not look like a fresh allowance.
 }
 // 人机验证 fail-closed：没配 TURNSTILE_SECRET_KEY 就拒绝解析，除非明确设了 TURNSTILE_DISABLED=1
 function turnstileDisabled(env) {
@@ -1209,6 +1195,7 @@ async function handleGeoStats(request, env) {
 async function handleParseQuota(request, env) {
   const DAILY_LIMIT = RL_DAILY_LIMIT;
   const used = await rateUsed(env, 'douyin', request.headers.get('cf-connecting-ip') || '');
+  if (used === null) return json({ok:false,error:RL_BUSY.msg},503);
   return json({ ok: true, limit: DAILY_LIMIT, used, remaining: Math.max(0, DAILY_LIMIT - used) });
 }
 
