@@ -607,7 +607,7 @@ async function handleDl(request) {
   } catch {
     return json({ ok: false, error: '无效的下载地址' }, 400);
   }
-  const DL_HOSTS = ['douyinvod.com', 'byteimg.com', 'ibyteimg.com', 'douyin.com', 'douyinpic.com', 'pstatp.com', '365yg.com'];
+  const DL_HOSTS = ['douyinvod.com', 'byteimg.com', 'ibyteimg.com', 'douyin.com', 'douyinpic.com', 'pstatp.com', '365yg.com', 'bdcgslb.com'];
   if (!/^https:$/.test(target.protocol) || !hostMatches(target.hostname, DL_HOSTS))
     return json({ ok: false, error: '不支持的下载地址' }, 400);
   const ctrl = new AbortController();
