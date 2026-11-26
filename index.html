@@ -165,11 +165,14 @@ function jxParseHeaders(h) {
   <div class="card" id="result">
     <div class="title" id="resTitle"></div>
     <div id="mediaBox"></div>
+    <div class="sizeline" id="sizeLine" style="display:none">文件大小：<span id="sizeVal"></span></div>
+    <div class="sizenote" id="sizeNote" style="display:none" role="status"></div>
     <button type="button" class="btn" id="dlBtn" style="display:none">下载无水印视频</button>
     <div class="dlprog" id="dlProg">
       <div class="track"><div class="bar" id="dlProgBar"></div></div>
       <div class="txt" id="dlProgTxt">准备下载</div>
     </div>
+    <div class="hint" id="dlSent" style="display:none" role="status">已交给浏览器下载，请在浏览器的下载列表里查看进度。</div>
     <button type="button" class="btn" id="saveBtn" style="display:none" onclick="window.__saveFile()">下载完成，点这里保存</button>
     <div class="hint" id="dlHint" style="display:none">iPhone 会弹出分享菜单，点「存储视频」即可保存到相册；没弹出就点「点这里保存」</div>
   </div>
@@ -276,8 +279,8 @@ var deviceId = (function(){
   // 下载代理：Safari 不允许页面伪造跨域 Referer（实测会被忽略），
   // 而抖音 CDN 强校验 Referer，所以媒体下载一律走同源的 /api/dl 代理，
   // 由 Worker 代为设置 Referer 头下载后转交前端。
-  function dlProxy(u, filename){
-    return '/api/dl?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(filename || 'video.mp4');
+  function dlProxy(u, filename, inline){
+    return '/api/dl?url=' + encodeURIComponent(u) + '&filename=' + encodeURIComponent(filename || 'video.mp4') + (inline ? '&inline=1' : '');
   }
   function dyFetch(u, filename){
     return fetch(dlProxy(u, filename));
@@ -449,7 +452,7 @@ var deviceId = (function(){
     tryNext();
   }
 
-  // 预览：经 /api/dl 代理取 blob，再转成本地 URL
+  // 预览（图片）：经 /api/dl 代理取 blob，再转成本地 URL；视频预览不再走 blob，直接流式播放
   function blobUrl(u, filename){
     return dyFetch(u, filename).then(function(res){
       if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -459,28 +462,110 @@ var deviceId = (function(){
     });
   }
 
+  // 大文件分界：已知大小超过 BIG_DL 或大小未知，一律交给浏览器原生下载（不读进内存）；
+  // 超过 HUGE_FILE（与后端 MAX_SANE_VIDEO_BYTES 一致）或后端标了 oversize，提示文件异常大
+  var BIG_DL = 100 * 1048576, HUGE_FILE = 500 * 1048576, PREVIEW_TIMEOUT = 20000;
+  function fmtSize(b){ return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.round(b / 1048576) + ' MB'; }
+  var _prevTimer = null;
+  function clearPrevTimer(){ if(_prevTimer){ clearTimeout(_prevTimer); _prevTimer = null; } }
+
+  // 流式预览：<video src="/api/dl?...&inline=1">，加载超时 / 出错 / 播放中卡死都给出明确提示和「重新加载」
+  function mountPreview(url, name, cover){
+    var v = document.createElement('video');
+    v.id = 'preview'; v.controls = true; v.playsInline = true; v.preload = 'metadata';
+    v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
+    if(cover) v.poster = cover;
+    var st = document.createElement('div');
+    st.className = 'prevstate'; st.setAttribute('role', 'status');
+    mediaBox.appendChild(v);
+    mediaBox.appendChild(st);
+    var src = dlProxy(url, name, true);
+    var failed = false, ready = false;
+    function setState(text, withRetry){
+      st.textContent = text || '';
+      st.className = 'prevstate' + (withRetry ? ' is-err' : '') + (text ? ' show' : '');
+      if(withRetry){
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn ghost'; b.textContent = '重新加载预览';
+        b.onclick = load;
+        st.appendChild(b);
+      }
+    }
+    function fail(msg){
+      if(failed) return;
+      failed = true; clearPrevTimer();
+      try { v.pause(); v.removeAttribute('src'); v.load(); } catch(e){}
+      setState(msg, true);
+    }
+    function armWatch(ms, msg){
+      clearPrevTimer();
+      _prevTimer = setTimeout(function(){ fail(msg); }, ms);
+    }
+    v.addEventListener('loadedmetadata', function(){
+      ready = true; clearPrevTimer(); setState('');
+    });
+    v.addEventListener('error', function(){
+      fail('预览加载失败，视频地址可能已失效。可以点下面重新加载，或直接下载。');
+    });
+    // 开始播放后卡住（缓冲不动）超过 20 秒也算失败；一旦恢复就取消
+    ['waiting', 'stalled'].forEach(function(ev){
+      v.addEventListener(ev, function(){
+        if(ready && !failed && !v.paused) armWatch(PREVIEW_TIMEOUT, '播放卡住了，网络可能不稳定。可以点下面重新加载，或直接下载。');
+      });
+    });
+    ['playing', 'canplay', 'timeupdate', 'seeked', 'pause'].forEach(function(ev){
+      v.addEventListener(ev, function(){ if(ready && !failed) clearPrevTimer(); });
+    });
+    function load(){
+      failed = false; ready = false;
+      setState('预览加载中…', false);
+      armWatch(PREVIEW_TIMEOUT, '预览加载超时（超过 20 秒没有响应）。可以点下面重新加载，或直接下载。');
+      v.src = src; v.load();
+    }
+    load();
+  }
+
   function renderResult(d){
+    clearPrevTimer();
     resultBox.style.display = 'block';
     $('resTitle').textContent = d.title || '（无标题）';
     mediaBox.innerHTML = '';
     dlBtn.style.display = 'none';
     dlHint.style.display = 'none';
+    $('sizeLine').style.display = 'none';
+    $('sizeNote').style.display = 'none';
+    $('dlSent').style.display = 'none';
 
     if(d.videos && d.videos.length){
-      var v = document.createElement('video');
-      v.id = 'preview'; v.controls = true; v.playsInline = true; v.preload = 'metadata';
-      v.textContent = '视频加载中…';
-      mediaBox.appendChild(v);
-      blobUrl(d.videos[0], fileName(d.title || 'video', 'mp4')).then(function(objUrl){
-        v.src = objUrl;
-      }).catch(function(){
-        v.textContent = '';
-        v.poster = d.cover || '';
-        showError('预览加载失败，但仍可尝试一键下载。');
-      });
+      var name = fileName(d.title || 'video', 'mp4');
+      var size = (d.sizes && typeof d.sizes[0] === 'number' && d.sizes[0] > 0) ? d.sizes[0] : null;
+      mountPreview(d.videos[0], name, d.cover || '');
+      if(size !== null){
+        var huge = size > HUGE_FILE;
+        $('sizeVal').textContent = '约 ' + fmtSize(size);
+        $('sizeLine').className = 'sizeline' + (huge ? ' is-warn' : '');
+        $('sizeLine').style.display = 'block';
+      }
+      if(d.oversize || (size !== null && size > HUGE_FILE)){
+        $('sizeNote').textContent = '这个文件异常大' + (size !== null ? '（约 ' + fmtSize(size) + '）' : '') +
+          '，可能不是正常的视频源，下载会很慢、很占流量。可以等一分钟后重新解析一次，通常能拿到正常大小的文件。';
+        $('sizeNote').style.display = 'block';
+      }
       dlBtn.style.display = 'block';
       dlHint.style.display = 'block';
-      dlBtn.onclick = function(){ downloadFile(d.videos[0], fileName(d.title || 'video', 'mp4'), d.videos.slice(1)); };
+      dlBtn.onclick = function(){
+        if(size === null || size > BIG_DL){
+          // 大文件 / 大小未知：普通链接交给浏览器下载，不读进内存
+          var a = document.createElement('a');
+          a.href = dlProxy(d.videos[0], name); a.download = name;
+          document.body.appendChild(a); a.click();
+          setTimeout(function(){ document.body.removeChild(a); }, 2000);
+          $('dlSent').style.display = 'block';
+          return;
+        }
+        $('dlSent').style.display = 'none';
+        downloadFile(d.videos[0], name, d.videos.slice(1));
+      };
     } else if(d.images && d.images.length){
       var grid = document.createElement('div');
       grid.className = 'grid';

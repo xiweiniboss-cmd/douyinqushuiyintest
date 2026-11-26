@@ -506,6 +506,55 @@ async function parseShareViaRedFox(shareText, apiKey, debug) {
   throw err;
 }
 
+
+// 探测每个候选视频地址的大小（Range: bytes=0-0，从 Content-Range 读总长；不支持 Range 时退回 Content-Length）
+const MAX_SANE_VIDEO_BYTES = 500 * 1024 * 1024;
+const PROBE_TIMEOUT_MS = 5000;
+async function probeSize(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const resp = await fetchAllowedHops(url, {
+      method: 'GET',
+      headers: { ...DL_HEADERS, Range: 'bytes=0-0' },
+      signal: ctrl.signal,
+    }, (h) => hostMatches(h, DL_HOSTS));
+    if (!resp) return null;
+    let size = null;
+    const cr = /\/(\d+)\s*$/.exec(resp.headers.get('content-range') || '');
+    if (resp.status === 206 && cr) size = Number(cr[1]);
+    else if (resp.status === 200) {
+      const cl = Number(resp.headers.get('content-length'));
+      if (cl > 0) size = cl;
+    }
+    try { if (resp.body) await resp.body.cancel(); } catch {}
+    return Number.isFinite(size) && size > 0 ? size : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// 返回 { videos, sizes, oversize }：大小正常（< 上限）的排前面，其余保持原顺序；探测失败不影响原顺序
+async function rankVideosBySize(videos) {
+  if (!Array.isArray(videos) || !videos.length) return { videos: videos || [], sizes: [], oversize: false };
+  let sizes;
+  try {
+    sizes = await Promise.all(videos.map((v) => probeSize(v).catch(() => null)));
+  } catch {
+    sizes = videos.map(() => null);
+  }
+  const idx = videos.map((_, i) => i);
+  const sane = (i) => sizes[i] !== null && sizes[i] < MAX_SANE_VIDEO_BYTES;
+  const ordered = [...idx.filter(sane), ...idx.filter((i) => !sane(i))];
+  const first = ordered[0];
+  return {
+    videos: ordered.map((i) => videos[i]),
+    sizes: ordered.map((i) => sizes[i]),
+    oversize: sizes[first] !== null && sizes[first] >= MAX_SANE_VIDEO_BYTES,
+  };
+}
+
 // ---------- 解析 ----------
 async function handleParse(request, env) {
   const apiKey = (env.REDFOX_API_KEY || '').trim();
@@ -546,6 +595,13 @@ async function handleParse(request, env) {
   plPass(request); // 人机验证 + 冷却 + 每日次数都过了：这次解析才记进 D1 parse_log
   try {
     const result = await parseShareViaRedFox(shareText, apiKey, debug);
+    // 探测各视频地址大小，大小正常的排前面；探测失败保持原顺序
+    try {
+      const ranked = await rankVideosBySize(result.videos);
+      result.videos = ranked.videos;
+      result.sizes = ranked.sizes;
+      result.oversize = ranked.oversize;
+    } catch {}
     // 预览卡片（allfeedback「解析记录」）：封面 / 标题 / 类型。图文没有封面时用第一张图
     plMeta(request, {
       cover: result.cover || (Array.isArray(result.images) && typeof result.images[0] === 'string' ? result.images[0] : ''),
@@ -597,41 +653,61 @@ async function handleParse(request, env) {
 }
 
 // ---------- 媒体下载代理 ----------
+const DL_HOSTS = ['douyinvod.com', 'byteimg.com', 'ibyteimg.com', 'douyin.com', 'douyinpic.com', 'pstatp.com', '365yg.com', 'bdcgslb.com'];
+const DL_HEADERS = { 'User-Agent': UA_MOBILE, Referer: 'https://www.douyin.com/', Accept: '*/*' };
 async function handleDl(request) {
   const u = new URL(request.url);
   const mediaUrl = u.searchParams.get('url') || '';
   const filename = (u.searchParams.get('filename') || 'douyin_media').replace(/["\r\n]/g, '').slice(0, 80) || 'douyin_media';
+  const inline = u.searchParams.get('inline') === '1';
+  const isHead = request.method === 'HEAD';
   let target = null;
   try {
     target = new URL(mediaUrl);
   } catch {
     return json({ ok: false, error: '无效的下载地址' }, 400);
   }
-  const DL_HOSTS = ['douyinvod.com', 'byteimg.com', 'ibyteimg.com', 'douyin.com', 'douyinpic.com', 'pstatp.com', '365yg.com', 'bdcgslb.com'];
   if (!/^https:$/.test(target.protocol) || !hostMatches(target.hostname, DL_HOSTS))
     return json({ ok: false, error: '不支持的下载地址' }, 400);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 90000);
   try {
+    // 转发客户端的 Range（视频拖进度条、iOS Safari 播放都靠它）；格式不对的 Range 直接忽略
+    const upHeaders = { ...DL_HEADERS };
+    const range = request.headers.get('Range') || '';
+    if (/^bytes=\d*-\d*(,\s*\d*-\d*)*$/.test(range)) upHeaders.Range = range;
     // 手动跟随跳转，每一跳都重新校验 https + 域名白名单（以前默认 follow，只校验第一跳）
     const resp = await fetchAllowedHops(mediaUrl, {
-      headers: {
-        'User-Agent': UA_MOBILE,
-        Referer: 'https://www.douyin.com/',
-        Accept: '*/*',
-      },
+      method: isHead ? 'HEAD' : 'GET',
+      headers: upHeaders,
       signal: ctrl.signal,
     }, (h) => hostMatches(h, DL_HOSTS));
     if (!resp) return json({ ok: false, error: '不支持的下载地址' }, 400);
-    if (!resp.ok || !resp.body)
+    if (resp.status === 416) {
+      const h416 = new Headers();
+      const cr = resp.headers.get('content-range');
+      if (cr) h416.set('Content-Range', cr);
+      h416.set('Cache-Control', 'no-store');
+      return new Response(null, { status: 416, headers: h416 });
+    }
+    if (!resp.ok || (!resp.body && !isHead))
       return json({ ok: false, error: '下载失败（HTTP ' + resp.status + '）' }, 502);
     const h = new Headers();
     h.set('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
     const len = resp.headers.get('content-length');
     if (len) h.set('Content-Length', len);
-    h.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+    const ar = resp.headers.get('accept-ranges');
+    if (ar) h.set('Accept-Ranges', ar);
+    let status = 200;
+    if (resp.status === 206) {
+      status = 206;
+      const cr = resp.headers.get('content-range');
+      if (cr) h.set('Content-Range', cr);
+      h.set('Accept-Ranges', 'bytes');
+    }
+    h.set('Content-Disposition', (inline ? 'inline' : 'attachment') + '; filename="' + filename + '"');
     h.set('Cache-Control', 'no-store');
-    return new Response(resp.body, { status: 200, headers: h });
+    return new Response(isHead ? null : resp.body, { status, headers: h });
   } catch (e) {
     return json({ ok: false, error: '下载失败：' + (e.message || '网络错误') }, 502);
   } finally {
