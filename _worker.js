@@ -652,6 +652,14 @@ async function handleParse(request, env) {
   }
 }
 
+// Content-Disposition：filename 给 ASCII 兜底，filename* 给 UTF-8 原名（RFC 6266 / 5987），中文标题在 iPhone / Chrome 都不乱码
+function contentDisposition(type, name) {
+  const raw = String(name || 'download').replace(/[\r\n"\\]/g, '').slice(0, 120) || 'download';
+  const ascii = raw.replace(/[^\x20-\x7e]/g, '_').replace(/[;%]/g, '_') || 'download';
+  const star = encodeURIComponent(raw).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return type + '; filename="' + ascii + '"; filename*=UTF-8\'\'' + star;
+}
+
 // ---------- 媒体下载代理 ----------
 const DL_HOSTS = ['douyinvod.com', 'byteimg.com', 'ibyteimg.com', 'douyin.com', 'douyinpic.com', 'pstatp.com', '365yg.com', 'bdcgslb.com'];
 const DL_HEADERS = { 'User-Agent': UA_MOBILE, Referer: 'https://www.douyin.com/', Accept: '*/*' };
@@ -705,7 +713,7 @@ async function handleDl(request) {
       if (cr) h.set('Content-Range', cr);
       h.set('Accept-Ranges', 'bytes');
     }
-    h.set('Content-Disposition', (inline ? 'inline' : 'attachment') + '; filename="' + filename + '"');
+    h.set('Content-Disposition', contentDisposition(inline ? 'inline' : 'attachment', filename));
     h.set('Cache-Control', 'no-store');
     return new Response(isHead ? null : resp.body, { status, headers: h });
   } catch (e) {
