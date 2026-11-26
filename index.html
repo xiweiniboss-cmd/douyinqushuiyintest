@@ -552,7 +552,8 @@ var deviceId = (function(){
         $('sizeNote').style.display = 'block';
       }
       dlBtn.style.display = 'block';
-      dlHint.style.display = 'block';
+      // 大文件 / 大小未知走浏览器下载，没有分享菜单，不显示 iPhone 提示
+      dlHint.style.display = (size === null || size > BIG_DL) ? 'none' : 'block';
       dlBtn.onclick = function(){
         if(size === null || size > BIG_DL){
           // 大文件 / 大小未知：普通链接交给浏览器下载，不读进内存
