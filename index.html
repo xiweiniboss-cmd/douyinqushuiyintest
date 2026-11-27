@@ -675,7 +675,8 @@ var deviceId = (function(){
       function used(){ if (wid !== null) { try { turnstile.reset(wid); } catch (e) {} } }
       function remove(){
         if (wid === null) return;
-        try { turnstile.remove(wid); } finally { wid = null; }
+        try { turnstile.remove(wid); } catch (e) {}
+        wid = null;
         document.getElementById(boxId).style.display = 'none';
       }
       return { token: token, used: used, remove: remove };
@@ -934,7 +935,6 @@ var deviceId = (function(){
     var apiUrl = '/api/parse?url=' + encodeURIComponent(text);
     if (deviceId) apiUrl += '&deviceId=' + encodeURIComponent(deviceId);
     if (tsToken) apiUrl += '&turnstile=' + encodeURIComponent(tsToken);
-    JxTsParse.remove();
     return fetch(apiUrl, { headers: jxParseHeaders() })
       .then(function(r){ return r.text().then(function(t){
         var ct = r.headers.get('content-type') || '';
@@ -962,7 +962,7 @@ var deviceId = (function(){
         if(/did not match the expected pattern|Unexpected token/i.test(msg))
           msg = '服务暂时不可用，请稍后重试';
         showError('解析失败：' + msg);
-      });
+      }).finally(function(){ JxTsParse.remove(); });
     }, function(e){
       resetParseBtn();
       showError(String((e && e.message) || '人机验证未完成，请再点一次'));
