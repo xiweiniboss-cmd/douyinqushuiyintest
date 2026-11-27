@@ -673,7 +673,12 @@ var deviceId = (function(){
       }
       // token 只能用一次：请求发出后重置，下次会重新验证（通常无感自动完成）
       function used(){ if (wid !== null) { try { turnstile.reset(wid); } catch (e) {} } }
-      return { token: token, used: used };
+      function remove(){
+        if (wid === null) return;
+        try { turnstile.remove(wid); } finally { wid = null; }
+        document.getElementById(boxId).style.display = 'none';
+      }
+      return { token: token, used: used, remove: remove };
     }
     return { siteKey: siteKey, script: script, make: make };
   })();
@@ -929,7 +934,7 @@ var deviceId = (function(){
     var apiUrl = '/api/parse?url=' + encodeURIComponent(text);
     if (deviceId) apiUrl += '&deviceId=' + encodeURIComponent(deviceId);
     if (tsToken) apiUrl += '&turnstile=' + encodeURIComponent(tsToken);
-    JxTsParse.used();
+    JxTsParse.remove();
     return fetch(apiUrl, { headers: jxParseHeaders() })
       .then(function(r){ return r.text().then(function(t){
         var ct = r.headers.get('content-type') || '';
